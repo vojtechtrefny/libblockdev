@@ -56,6 +56,7 @@ class KbdZRAMTestCase(unittest.TestCase):
         if self._loaded_zram_module:
             os.system("rmmod zram")
 
+@skip_on("debian", reason="loading zram module is broken on Debian")
 class KbdZRAMDevicesTestCase(KbdZRAMTestCase):
     @unittest.skipUnless(_can_load_zram(), "cannot load the 'zram' module")
     @unittest.skipIf("SKIP_SLOW" in os.environ, "skipping slow tests")
@@ -151,6 +152,7 @@ class KbdZRAMDevicesTestCase(KbdZRAMTestCase):
             time.sleep(5)
 
 
+@skip_on("debian", reason="loading zram module is broken on Debian")
 class KbdZRAMStatsTestCase(KbdZRAMTestCase):
     @unittest.skipUnless(_can_load_zram(), "cannot load the 'zram' module")
     @skip_on(("centos", "enterprise_linux"), reason="needs newest kernel to run")
