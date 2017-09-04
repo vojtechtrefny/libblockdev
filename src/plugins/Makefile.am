@@ -60,7 +60,7 @@ endif
 
 if WITH_BTRFS
 libbd_btrfs_la_CFLAGS = $(GLIB_CFLAGS) $(BYTESIZE_CFLAGS) -Wall -Wextra -Werror
-libbd_btrfs_la_LIBADD = $(GLIB_LIBS) $(BYTESIZE_LIBS) ${builddir}/../utils/libbd_utils.la
+libbd_btrfs_la_LIBADD = $(GLIB_LIBS) $(BYTESIZE_LIBS) -lbtrfs ${builddir}/../utils/libbd_utils.la
 libbd_btrfs_la_LDFLAGS = -L${srcdir}/../utils/ -version-info 2:0:0 -Wl,--no-undefined
 libbd_btrfs_la_CPPFLAGS = -I${builddir}/../../include/
 libbd_btrfs_la_SOURCES = btrfs.c btrfs.h

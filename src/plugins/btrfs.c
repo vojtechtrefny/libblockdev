@@ -22,6 +22,11 @@
 #include <unistd.h>
 #include <blockdev/utils.h>
 #include <bs_size.h>
+#include <btrfs/btrfs-list.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <dirent.h>
 
 #include "btrfs.h"
 
@@ -377,45 +382,37 @@ gboolean bd_btrfs_delete_subvolume (const gchar *mountpoint, const gchar *name, 
  * @error) may be set to indicate error
  */
 guint64 bd_btrfs_get_default_subvolume_id (const gchar *mountpoint, GError **error) {
-    GRegex *regex = NULL;
-    GMatchInfo *match_info = NULL;
-    gboolean success = FALSE;
-    gchar *output = NULL;
-    gchar *match = NULL;
-    guint64 ret = 0;
-    const gchar *argv[5] = {"btrfs", "subvol", "get-default", mountpoint, NULL};
+    int fd = -1;
+    int ret = -1;
+    u64 default_id = -1;
+    DIR *dirstream = NULL;
 
-    regex = g_regex_new ("ID (\\d+) .*", 0, 0, error);
-    if (!regex) {
-        g_warning ("Failed to create new GRegex");
-        /* error is already populated */
+    // FIXME: This should use some custom function similar "btrfs_open_dir" from btrfs/utils.h
+    dirstream = opendir (mountpoint);
+		if (!dirstream) {
+      g_set_error (error, BD_BTRFS_ERROR, BD_BTRFS_ERROR_PARSE, "Failed to open %s (%m)", mountpoint);
+			return 0;
+    }
+
+    fd = dirfd (dirstream);
+    if (fd == -1) {
+        g_set_error (error, BD_BTRFS_ERROR, BD_BTRFS_ERROR_PARSE, "Failed to open %s (%m)", mountpoint);
+        closedir (dirstream);
         return 0;
     }
 
-    success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
-    if (!success) {
-        g_regex_unref (regex);
+    ret = btrfs_list_get_default_subvolume (fd, &default_id);
+	  if (ret) {
+        g_set_error (error, BD_BTRFS_ERROR, BD_BTRFS_ERROR_PARSE,
+                     "Failed to lookup default subvolume for %s: %s", mountpoint, strerror (errno));
+        close (fd);
+        closedir (dirstream);
         return 0;
     }
 
-    success = g_regex_match (regex, output, 0, &match_info);
-    if (!success) {
-        g_set_error (error, BD_BTRFS_ERROR, BD_BTRFS_ERROR_PARSE, "Failed to parse subvolume's ID");
-        g_regex_unref (regex);
-        g_match_info_free (match_info);
-        g_free (output);
-        return 0;
-    }
-
-    match = g_match_info_fetch (match_info, 1);
-    ret = g_ascii_strtoull (match, NULL, 0);
-
-    g_free (match);
-    g_match_info_free (match_info);
-    g_regex_unref (regex);
-    g_free (output);
-
-    return ret;
+    close (fd);
+    closedir (dirstream);
+    return (guint64) default_id;
 }
 
 /**
