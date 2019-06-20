@@ -160,6 +160,7 @@ def _should_skip(distro=None, version=None, arch=None, reason=None):
 
     if (distro is None or DISTRO in distro) and (version is None or VERSION in version) and \
        (arch is None or ARCH in arch):
+        import pdb; pdb.set_trace()
         return True
 
     return False
