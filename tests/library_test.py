@@ -411,22 +411,3 @@ class PluginsTestCase(unittest.TestCase):
         self.assertTrue(BlockDev.reinit(self.requested_plugins, True, None))
 
         self.assertEqual(BlockDev.lvm_get_max_lv_size(), orig_max_size)
-
-
-class DepChecksTestCase(unittest.TestCase):
-    requested_plugins = BlockDev.plugin_specs_from_names(( "swap",))
-
-    def test_dep_checks_disabled(self):
-        """Verify that disabling runtime dep checks works"""
-
-        with fake_path(all_but="mkswap"):
-            # should fail because of 'mkswap' missing
-            with self.assertRaises(GLib.GError):
-                BlockDev.reinit(self.requested_plugins, True, None)
-
-        os.environ["LIBBLOCKDEV_SKIP_DEP_CHECKS"] = ""
-        self.addCleanup(os.environ.pop, "LIBBLOCKDEV_SKIP_DEP_CHECKS")
-
-        with fake_path(all_but="mkswap"):
-            # should load just fine, skipping the runtime dep checks
-            self.assertTrue(BlockDev.reinit(self.requested_plugins, True, None))

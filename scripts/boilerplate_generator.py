@@ -205,17 +205,6 @@ def get_loading_func(fn_infos, module_name):
     ret += '    }\n\n'
 
     ret += '    dlerror();\n'
-    ret += '    * (void**) (&check_fn) = dlsym(handle, "bd_{0}_check_deps");\n'.format(MOD_FNAME_OVERRIDES.get(module_name, module_name))
-    ret += '    if ((error = dlerror()) != NULL)\n'
-    ret += '        g_debug("failed to load the check() function for {0}: %s", error);\n'.format(module_name)
-    ret += '    /* coverity[dead_error_condition] */\n'  # coverity doesn't understand dlsym and thinks check_fn is NULL
-    ret += '    if (!g_getenv ("LIBBLOCKDEV_SKIP_DEP_CHECKS") && check_fn && !check_fn()) {\n'
-    ret += '        dlclose(handle);\n'
-    ret += '        return NULL;\n'
-    ret += '    }\n'
-    ret += '    check_fn = NULL;\n\n'
-
-    ret += '    dlerror();\n'
     ret += '    * (void**) (&init_fn) = dlsym(handle, "bd_{0}_init");\n'.format(MOD_FNAME_OVERRIDES.get(module_name, module_name))
     ret += '    if ((error = dlerror()) != NULL)\n'
     ret += '        g_debug("failed to load the init() function for {0}: %s", error);\n'.format(module_name)
