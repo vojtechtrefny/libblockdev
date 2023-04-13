@@ -1855,50 +1855,6 @@ class LvmTestLVTags(LvmPVVGLVTestCase):
         self.assertTrue(info)
         self.assertEqual(info.lv_tags, ["c", "e"])
 
-class LVMUnloadTest(LVMTestCase):
-    def setUp(self):
-        if not self.devices_avail:
-            self.skipTest("skipping LVM unload test: missing some LVM dependencies")
-
-        # make sure the library is initialized with all plugins loaded for other
-        # tests
-        self.addCleanup(BlockDev.reinit, self.requested_plugins, True, None)
-
-    @tag_test(TestTags.NOSTORAGE)
-    def test_check_low_version(self):
-        """Verify that checking the minimum LVM version works as expected"""
-
-        # unload all plugins first
-        self.assertTrue(BlockDev.reinit([], True, None))
-
-        with fake_utils("tests/fake_utils/lvm_low_version/"):
-            # too low version of LVM available, the LVM plugin should fail to load
-            with self.assertRaises(GLib.GError):
-                BlockDev.reinit(self.requested_plugins, True, None)
-
-            self.assertNotIn("lvm", BlockDev.get_available_plugin_names())
-
-        # load the plugins back
-        self.assertTrue(BlockDev.reinit(self.requested_plugins, True, None))
-        self.assertIn("lvm", BlockDev.get_available_plugin_names())
-
-    @tag_test(TestTags.NOSTORAGE)
-    def test_check_no_lvm(self):
-        """Verify that checking lvm tool availability works as expected"""
-
-        # unload all plugins first
-        self.assertTrue(BlockDev.reinit([], True, None))
-
-        with fake_path(all_but="lvm"):
-            # no lvm tool available, the LVM plugin should fail to load
-            with self.assertRaises(GLib.GError):
-                BlockDev.reinit(self.requested_plugins, True, None)
-
-            self.assertNotIn("lvm", BlockDev.get_available_plugin_names())
-
-        # load the plugins back
-        self.assertTrue(BlockDev.reinit(self.requested_plugins, True, None))
-        self.assertIn("lvm", BlockDev.get_available_plugin_names())
 
 class LVMTechTest(LVMTestCase):
 

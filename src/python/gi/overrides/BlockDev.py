@@ -995,6 +995,12 @@ def md_activate(raid_spec=None, members=None, uuid=None, start_degraded=True, ex
 __all__.append("md_activate")
 
 
+# XXX enums with just one member are broken with GI
+class MDTech():
+    MDRAID = BlockDev.MDTech.MD_TECH_MDRAID
+__all__.append("MDTech")
+
+
 if os.uname()[4].startswith('s390'):
     _s390_dasd_format = BlockDev.s390_dasd_format
     @override(BlockDev.s390_dasd_format)
@@ -1059,6 +1065,12 @@ def nvdimm_namespace_disable(namespace, extra=None, **kwargs):
     extra = _get_extra(extra, kwargs)
     return _nvdimm_namespace_disable(namespace, extra)
 __all__.append("nvdimm_namespace_disable")
+
+
+# XXX enums with just one member are broken with GI
+class NVDIMMTech():
+    NAMESPACE = BlockDev.NVDIMMTech.NVDIMM_TECH_NAMESPACE
+__all__.append("NVDIMMTech")
 
 
 _nvme_connect = BlockDev.nvme_connect
