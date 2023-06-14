@@ -112,7 +112,6 @@ bd_crypto_luks_token_info_free
 bd_crypto_luks_token_info_copy
 bd_crypto_luks_token_info
 bd_crypto_keyring_add_key
-bd_crypto_luks_open_keyring
 bd_crypto_tc_open
 bd_crypto_tc_close
 bd_crypto_escrow_device
