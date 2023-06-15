@@ -262,7 +262,7 @@ CryptoLUKSExtra = override(CryptoLUKSExtra)
 __all__.append("CryptoLUKSExtra")
 
 class CryptoKeyslotContext(BlockDev.CryptoKeyslotContext):
-    def __new__(cls, passphrase=None, keyfile=None, keyfile_offset=0, key_size=0, keyring=None):
+    def __new__(cls, passphrase=None, keyfile=None, keyfile_offset=0, key_size=0, keyring=None, volume_key=None):
         if (passphrase and keyfile):
             raise ValueError("Only one of 'passphrase' and 'keyfile' may be specified at time")
         if passphrase:
@@ -274,6 +274,8 @@ class CryptoKeyslotContext(BlockDev.CryptoKeyslotContext):
             ret = BlockDev.CryptoKeyslotContext.new_keyfile(keyfile, keyfile_offset, key_size)
         if keyring:
             ret = BlockDev.CryptoKeyslotContext.new_keyring(keyring)
+        if volume_key:
+            ret = BlockDev.CryptoKeyslotContext.new_volume_key(volume_key)
         return ret
     def __init__(self, *args, **kwargs):   # pylint: disable=unused-argument
         super(CryptoKeyslotContext, self).__init__()  #pylint: disable=bad-super-call
@@ -354,14 +356,14 @@ __all__.append("CryptoIntegrityExtra")
 
 _crypto_integrity_format = BlockDev.crypto_integrity_format
 @override(BlockDev.crypto_integrity_format)
-def crypto_integrity_format(device, algorithm=None, wipe=True, key_data=None, extra=None):
-    return _crypto_integrity_format(device, algorithm, wipe, key_data, extra)
+def crypto_integrity_format(device, algorithm=None, wipe=True, context=None, extra=None):
+    return _crypto_integrity_format(device, algorithm, wipe, context, extra)
 __all__.append("crypto_integrity_format")
 
 _crypto_integrity_open = BlockDev.crypto_integrity_open
 @override(BlockDev.crypto_integrity_open)
-def crypto_integrity_open(device, name, algorithm, key_data=None, flags=0, extra=None):
-    return _crypto_integrity_open(device, name, algorithm, key_data, flags, extra)
+def crypto_integrity_open(device, name, algorithm, context=None, flags=0, extra=None):
+    return _crypto_integrity_open(device, name, algorithm, context, flags, extra)
 __all__.append("crypto_integrity_open")
 
 
