@@ -1,0 +1,81 @@
+# Based on 'Cross Compile' workflow from OpenSLL licensed under
+# Apache License 2.0, see the OpenSSL project copyright below:
+#
+# Copyright 2021-2022 The OpenSSL Project Authors. All Rights Reserved.
+#
+# Licensed under the Apache License 2.0 (the "License").  You may not use
+# this file except in compliance with the License.  You can obtain a copy
+# in the file LICENSE in the source distribution or at
+# https://www.openssl.org/source/license.html
+
+name: Cross Compile
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+permissions:
+  contents: read
+
+jobs:
+  cross-compilation:
+    strategy:
+      fail-fast: false
+      matrix:
+        # The platform matrix specifies:
+        #   arch: the architecture to build for, this defines the tool-chain
+        #         prefix {arch}- and the Debian compiler package gcc-{arch}
+        #         name.
+        #   libs: the Debian package for the necessary link/runtime libraries.
+        #   target: the OpenSSL configuration target to use, this is passed
+        #           directly to the config command line.
+        platform: [
+          {
+            arch: aarch64-linux-gnu,
+            libs: libc6-dev-arm64-cross,
+            target: linux-aarch64
+          }, {
+            arch: hppa-linux-gnu,
+            libs: libc6-dev-hppa-cross,
+            target: -static linux-generic32,
+          }, {
+            arch: powerpc64le-linux-gnu,
+            libs: libc6-dev-ppc64el-cross,
+            target: -O2 linux-ppc64le
+          }, {
+            arch: riscv64-linux-gnu,
+            libs: libc6-dev-riscv64-cross,
+            target: linux64-riscv64
+          }, {
+            arch: s390x-linux-gnu,
+            libs: libc6-dev-s390x-cross,
+            target: linux64-s390x -Wno-stringop-overflow
+          }, {
+            arch: sh4-linux-gnu,
+            libs: libc6-dev-sh4-cross,
+            target: no-async linux-latomic,
+          }
+        ]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Install build dependencies
+      run: |
+        sudo apt -yq --force-yes install ansible
+        ansible-playbook -b -i "localhost," -c local misc/install-test-dependencies.yml
+
+    - name: install packages
+      run: |
+        sudo apt-get update
+        sudo apt-get -yq --force-yes install gcc-${{ matrix.platform.arch }} ${{ matrix.platform.libs }}
+
+    - name: configure
+      run: |
+        ./autogen.sh && ./configure --without-nvme ${{ matrix.platform.target }}
+
+    - name: make
+      run: make -s -j4
