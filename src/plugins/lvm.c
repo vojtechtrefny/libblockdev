@@ -499,12 +499,12 @@ static GHashTable* parse_lvm_vars (const gchar *str, guint *num_items) {
     table = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
     *num_items = 0;
 
-    items = g_strsplit_set (str, " \t\n", 0);
+    items = g_strsplit_set (str, "|", 0);
     for (item_p=items; *item_p; item_p++) {
         key_val = g_strsplit (*item_p, "=", 2);
         if (g_strv_length (key_val) == 2) {
             /* we only want to process valid lines (with the '=' character) */
-            g_hash_table_insert (table, key_val[0], key_val[1]);
+            g_hash_table_insert (table, g_strstrip (key_val[0]), key_val[1]);
             g_free (key_val);
             (*num_items)++;
         } else
@@ -1321,8 +1321,8 @@ gboolean bd_lvm_delete_pv_tags (const gchar *device, const gchar **tags, GError 
  * Tech category: %BD_LVM_TECH_BASIC-%BD_LVM_TECH_MODE_QUERY
  */
 BDLVMPVdata* bd_lvm_pvinfo (const gchar *device, GError **error) {
-    const gchar *args[10] = {"pvs", "--unit=b", "--nosuffix", "--nameprefixes",
-                       "--unquoted", "--noheadings",
+    const gchar *args[11] = {"pvs", "--unit=b", "--nosuffix", "--nameprefixes",
+                       "--unquoted", "--separator=|", "--noheadings",
                        "-o", "pv_name,pv_uuid,pv_free,pv_size,pe_start,vg_name,vg_uuid,vg_size," \
                        "vg_free,vg_extent_size,vg_extent_count,vg_free_count,pv_count,pv_tags,pv_missing",
                        device, NULL};
@@ -1368,8 +1368,8 @@ BDLVMPVdata* bd_lvm_pvinfo (const gchar *device, GError **error) {
  * Tech category: %BD_LVM_TECH_BASIC-%BD_LVM_TECH_MODE_QUERY
  */
 BDLVMPVdata** bd_lvm_pvs (GError **error) {
-    const gchar *args[9] = {"pvs", "--unit=b", "--nosuffix", "--nameprefixes",
-                       "--unquoted", "--noheadings",
+    const gchar *args[10] = {"pvs", "--unit=b", "--nosuffix", "--nameprefixes",
+                       "--unquoted", "--separator=|", "--noheadings",
                        "-o", "pv_name,pv_uuid,pv_free,pv_size,pe_start,vg_name,vg_uuid,vg_size," \
                        "vg_free,vg_extent_size,vg_extent_count,vg_free_count,pv_count,pv_tags,pv_missing",
                        NULL};
@@ -1663,8 +1663,8 @@ gboolean bd_lvm_vglock_stop (const gchar *vg_name, const BDExtraArg **extra, GEr
  * Tech category: %BD_LVM_TECH_BASIC-%BD_LVM_TECH_MODE_QUERY
  */
 BDLVMVGdata* bd_lvm_vginfo (const gchar *vg_name, GError **error) {
-    const gchar *args[10] = {"vgs", "--noheadings", "--nosuffix", "--nameprefixes",
-                       "--unquoted", "--units=b",
+    const gchar *args[11] = {"vgs", "--noheadings", "--nosuffix", "--nameprefixes",
+                       "--unquoted", "--separator=|", "--units=b",
                        "-o", "name,uuid,size,free,extent_size,extent_count,free_count,pv_count,vg_exported,vg_tags",
                        vg_name, NULL};
 
@@ -1709,8 +1709,8 @@ BDLVMVGdata* bd_lvm_vginfo (const gchar *vg_name, GError **error) {
  * Tech category: %BD_LVM_TECH_BASIC-%BD_LVM_TECH_MODE_QUERY
  */
 BDLVMVGdata** bd_lvm_vgs (GError **error) {
-    const gchar *args[9] = {"vgs", "--noheadings", "--nosuffix", "--nameprefixes",
-                      "--unquoted", "--units=b",
+    const gchar *args[10] = {"vgs", "--noheadings", "--nosuffix", "--nameprefixes",
+                      "--unquoted", "--separator=|", "--units=b",
                       "-o", "name,uuid,size,free,extent_size,extent_count,free_count,pv_count,vg_tags",
                       NULL};
     GHashTable *table = NULL;
@@ -2139,8 +2139,8 @@ gboolean bd_lvm_delete_lv_tags (const gchar *vg_name, const gchar *lv_name, cons
  * Tech category: %BD_LVM_TECH_BASIC-%BD_LVM_TECH_MODE_QUERY
  */
 BDLVMLVdata* bd_lvm_lvinfo (const gchar *vg_name, const gchar *lv_name, GError **error) {
-    const gchar *args[11] = {"lvs", "--noheadings", "--nosuffix", "--nameprefixes",
-                       "--unquoted", "--units=b", "-a",
+    const gchar *args[12] = {"lvs", "--noheadings", "--nosuffix", "--nameprefixes",
+                       "--unquoted", "--separator=|", "--units=b", "-a",
                        "-o", "vg_name,lv_name,lv_uuid,lv_size,lv_attr,segtype,origin,pool_lv,data_lv,metadata_lv,role,move_pv,data_percent,metadata_percent,copy_percent,lv_tags",
                        NULL, NULL};
 
@@ -2151,10 +2151,10 @@ BDLVMLVdata* bd_lvm_lvinfo (const gchar *vg_name, const gchar *lv_name, GError *
     gchar **lines_p = NULL;
     guint num_items;
 
-    args[9] = g_strdup_printf ("%s/%s", vg_name, lv_name);
+    args[10] = g_strdup_printf ("%s/%s", vg_name, lv_name);
 
     success = call_lvm_and_capture_output (args, NULL, &output, error);
-    g_free ((gchar *) args[9]);
+    g_free ((gchar *) args[10]);
 
     if (!success)
         /* the error is already populated from the call */
@@ -2181,8 +2181,8 @@ BDLVMLVdata* bd_lvm_lvinfo (const gchar *vg_name, const gchar *lv_name, GError *
 }
 
 BDLVMLVdata* bd_lvm_lvinfo_tree (const gchar *vg_name, const gchar *lv_name, GError **error) {
-    const gchar *args[11] = {"lvs", "--noheadings", "--nosuffix", "--nameprefixes",
-                       "--unquoted", "--units=b", "-a",
+    const gchar *args[12] = {"lvs", "--noheadings", "--nosuffix", "--nameprefixes",
+                       "--unquoted", "--separator=|", "--units=b", "-a",
                        "-o", "vg_name,lv_name,lv_uuid,lv_size,lv_attr,segtype,origin,pool_lv,data_lv,metadata_lv,role,move_pv,data_percent,metadata_percent,copy_percent,lv_tags,devices,metadata_devices,seg_size_pe",
                        NULL, NULL};
 
@@ -2194,10 +2194,10 @@ BDLVMLVdata* bd_lvm_lvinfo_tree (const gchar *vg_name, const gchar *lv_name, GEr
     guint num_items;
     BDLVMLVdata *result = NULL;
 
-    args[9] = g_strdup_printf ("%s/%s", vg_name, lv_name);
+    args[10] = g_strdup_printf ("%s/%s", vg_name, lv_name);
 
     success = call_lvm_and_capture_output (args, NULL, &output, error);
-    g_free ((gchar *) args[9]);
+    g_free ((gchar *) args[10]);
 
     if (!success)
         /* the error is already populated from the call */
@@ -2239,8 +2239,8 @@ BDLVMLVdata* bd_lvm_lvinfo_tree (const gchar *vg_name, const gchar *lv_name, GEr
  * Tech category: %BD_LVM_TECH_BASIC-%BD_LVM_TECH_MODE_QUERY
  */
 BDLVMLVdata** bd_lvm_lvs (const gchar *vg_name, GError **error) {
-    const gchar *args[11] = {"lvs", "--noheadings", "--nosuffix", "--nameprefixes",
-                       "--unquoted", "--units=b", "-a",
+    const gchar *args[12] = {"lvs", "--noheadings", "--nosuffix", "--nameprefixes",
+                       "--unquoted", "--separator=|", "--units=b", "-a",
                        "-o", "vg_name,lv_name,lv_uuid,lv_size,lv_attr,segtype,origin,pool_lv,data_lv,metadata_lv,role,move_pv,data_percent,metadata_percent,copy_percent,lv_tags",
                        NULL, NULL};
 
@@ -2257,7 +2257,7 @@ BDLVMLVdata** bd_lvm_lvs (const gchar *vg_name, GError **error) {
     lvs = g_ptr_array_new ();
 
     if (vg_name)
-        args[9] = vg_name;
+        args[10] = vg_name;
 
     success = call_lvm_and_capture_output (args, NULL, &output, &l_error);
     if (!success) {
@@ -2320,8 +2320,8 @@ BDLVMLVdata** bd_lvm_lvs (const gchar *vg_name, GError **error) {
 }
 
 BDLVMLVdata** bd_lvm_lvs_tree (const gchar *vg_name, GError **error) {
-    const gchar *args[11] = {"lvs", "--noheadings", "--nosuffix", "--nameprefixes",
-                       "--unquoted", "--units=b", "-a",
+    const gchar *args[12] = {"lvs", "--noheadings", "--nosuffix", "--nameprefixes",
+                       "--unquoted", "--separator=|", "--units=b", "-a",
                        "-o", "vg_name,lv_name,lv_uuid,lv_size,lv_attr,segtype,origin,pool_lv,data_lv,metadata_lv,role,move_pv,data_percent,metadata_percent,copy_percent,lv_tags,devices,metadata_devices,seg_size_pe",
                        NULL, NULL};
 
@@ -2338,7 +2338,7 @@ BDLVMLVdata** bd_lvm_lvs_tree (const gchar *vg_name, GError **error) {
     lvs = g_ptr_array_new ();
 
     if (vg_name)
-        args[9] = vg_name;
+        args[10] = vg_name;
 
     success = call_lvm_and_capture_output (args, NULL, &output, &l_error);
     if (!success) {
@@ -3477,8 +3477,8 @@ gboolean bd_lvm_vdo_disable_deduplication (const gchar *vg_name, const gchar *po
  * Tech category: %BD_LVM_TECH_VDO-%BD_LVM_TECH_MODE_QUERY
  */
 BDLVMVDOPooldata* bd_lvm_vdo_info (const gchar *vg_name, const gchar *lv_name, GError **error) {
-    const gchar *args[11] = {"lvs", "--noheadings", "--nosuffix", "--nameprefixes",
-                       "--unquoted", "--units=b", "-a",
+    const gchar *args[12] = {"lvs", "--noheadings", "--nosuffix", "--nameprefixes",
+                       "--unquoted", "--separator=|", "--units=b", "-a",
                        "-o", "vdo_operating_mode,vdo_compression_state,vdo_index_state,vdo_write_policy,vdo_index_memory_size,vdo_used_size,vdo_saving_percent,vdo_compression,vdo_deduplication",
                        NULL, NULL};
 
@@ -3489,10 +3489,10 @@ BDLVMVDOPooldata* bd_lvm_vdo_info (const gchar *vg_name, const gchar *lv_name, G
     gchar **lines_p = NULL;
     guint num_items;
 
-    args[9] = g_strdup_printf ("%s/%s", vg_name, lv_name);
+    args[10] = g_strdup_printf ("%s/%s", vg_name, lv_name);
 
     success = call_lvm_and_capture_output (args, NULL, &output, error);
-    g_free ((gchar *) args[9]);
+    g_free ((gchar *) args[10]);
 
     if (!success)
         /* the error is already populated from the call */
