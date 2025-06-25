@@ -338,13 +338,10 @@ class MDTestNominateDenominate(MDTestCase):
                                       1, None, None)
             self.assertTrue(succ)
 
-        with wait_for_action("resync"):
-            succ = BlockDev.md_denominate(self.loop_dev)
-            self.assertTrue(succ)
-
-        with wait_for_action("resync"):
-            succ = BlockDev.md_nominate(self.loop_dev)
-            self.assertTrue(succ)
+        # new mdadm, new race conditions:
+        # mdadm: failed to write 'read-auto' to '/sys/block/md127/md//array_state' (Device or resource busy)
+        # mdadm: Cannot remove member device sda from md127.
+        time.sleep(5)
 
         with wait_for_action("resync"):
             succ = BlockDev.md_denominate(self.loop_dev)
