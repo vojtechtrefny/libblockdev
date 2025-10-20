@@ -23,8 +23,10 @@
 #include <blockdev/utils.h>
 #include <libfdisk.h>
 #include <locale.h>
+#include <blkid.h>
 
 #include "part.h"
+#include "check_deps.h"
 
 /**
  * SECTION: part
@@ -122,6 +124,101 @@ static gint log2i (guint x) {
         ret++;
 
     return ret;
+}
+
+static gint synced_close (gint fd) {
+    gint ret = 0;
+    ret = fsync (fd);
+    if (close (fd) != 0)
+        ret = 1;
+    return ret;
+}
+
+static const gchar *table_type_str[BD_PART_TABLE_UNDEF] = {"dos", "gpt", "dasd"};
+
+static BDPartTableType _get_part_table_type (const gchar *device,  GError **error) {
+    blkid_probe probe = NULL;
+    gint fd = 0;
+    gint status = 0;
+    const gchar *value = NULL;
+    BDPartTableType pttype;
+    size_t len = 0;
+    guint n_try = 0;
+
+    probe = blkid_new_probe ();
+    if (!probe) {
+        g_set_error (error, BD_PART_ERROR, BD_PART_ERROR_FAIL,
+                     "Failed to create a new probe");
+        return BD_PART_TABLE_UNDEF;
+    }
+
+    fd = open (device, O_RDONLY|O_CLOEXEC);
+    if (fd == -1) {
+        g_set_error (error, BD_PART_ERROR, BD_PART_ERROR_FAIL,
+                     "Failed to open the device '%s': %s",
+                     device, strerror_l (errno, c_locale));
+        blkid_free_probe (probe);
+        return BD_PART_TABLE_UNDEF;
+    }
+
+    /* we may need to try multiple times with some delays in case the device is
+       busy at the very moment */
+    for (n_try=5, status=-1; (status != 0) && (n_try > 0); n_try--) {
+        status = blkid_probe_set_device (probe, fd, 0, 0);
+        if (status != 0)
+            g_usleep (100 * 1000); /* microseconds */
+    }
+    if (status != 0) {
+        g_set_error (error, BD_PART_ERROR, BD_PART_ERROR_FAIL,
+                     "Failed to create a probe for the device '%s'", device);
+        blkid_free_probe (probe);
+        synced_close (fd);
+        return BD_PART_TABLE_UNDEF;
+    }
+
+    blkid_probe_enable_partitions (probe, 1);
+    blkid_probe_set_partitions_flags (probe, BLKID_PARTS_MAGIC);
+    blkid_probe_enable_superblocks (probe, 1);
+
+    /* we may need to try multiple times with some delays in case the device is
+       busy at the very moment */
+    for (n_try=5, status=-1; !(status == 0 || status == 1) && (n_try > 0); n_try--) {
+        status = blkid_do_safeprobe (probe);
+        if (status < 0)
+            g_usleep (100 * 1000); /* microseconds */
+    }
+    if (status < 0) {
+        /* -1 or -2 = error during probing*/
+        g_set_error (error, BD_PART_ERROR, BD_PART_ERROR_FAIL,
+                     "Failed to probe the device '%s'", device);
+        blkid_free_probe (probe);
+        synced_close (fd);
+        return BD_PART_TABLE_UNDEF;
+    } else if (status == 1) {
+        /* 1 = nothing detected */
+        blkid_free_probe (probe);
+        synced_close (fd);
+        return BD_PART_TABLE_UNDEF;
+    }
+
+    status = blkid_probe_lookup_value (probe, "PTTYPE", &value, &len);
+    if (status != 0) {
+        g_set_error (error, BD_PART_ERROR, BD_PART_ERROR_FAIL,
+                     "Failed to get partition table type for the device '%s'", device);
+        blkid_free_probe (probe);
+        synced_close (fd);
+        return BD_PART_TABLE_UNDEF;
+    }
+
+    for (pttype=BD_PART_TABLE_MSDOS; pttype <= BD_PART_TABLE_UNDEF; pttype++) {
+        if (g_strcmp0 (value, table_type_str[pttype]) == 0)
+            break;
+    }
+
+    blkid_free_probe (probe);
+    synced_close (fd);
+
+    return pttype;
 }
 
 
@@ -286,6 +383,18 @@ static gboolean write_label (struct fdisk_context *cxt, struct fdisk_table *orig
     return TRUE;
 }
 
+static volatile guint avail_deps = 0;
+static volatile guint avail_module_deps = 0;
+static GMutex deps_check_lock;
+
+#define DEPS_FDASD 0
+#define DEPS_FDASD_MASK (1 << DEPS_FDASD)
+#define DEPS_LAST 1
+
+static const UtilDep deps[DEPS_LAST] = {
+    {"fdasd", NULL, NULL, NULL},
+};
+
 /**
  * bd_part_init:
  *
@@ -327,13 +436,13 @@ gboolean bd_part_is_tech_avail (BDPartTech tech, guint64 mode G_GNUC_UNUSED, GEr
         /* all MBR and GPT-mode combinations are supported by this implementation of the
          * plugin, nothing extra is needed */
         return TRUE;
+    case BD_PART_TECH_DASD:
+        return check_deps (&avail_deps, DEPS_FDASD_MASK, deps, DEPS_LAST, &deps_check_lock, error);
     default:
         g_set_error (error, BD_PART_ERROR, BD_PART_ERROR_TECH_UNAVAIL, "Unknown technology");
         return FALSE;
     }
 }
-
-static const gchar *table_type_str[BD_PART_TABLE_UNDEF] = {"dos", "gpt"};
 
 /**
  * bd_part_create_table:
@@ -778,16 +887,7 @@ BDPartSpec* bd_part_get_part_by_pos (const gchar *disk, guint64 position, GError
     return ret;
 }
 
-/**
- * bd_part_get_disk_spec:
- * @disk: disk to get information about
- * @error: (out) (optional): place to store error (if any)
- *
- * Returns: (transfer full): information about the given @disk or %NULL (in case of error)
- *
- * Tech category: %BD_PART_TECH_MODE_QUERY_TABLE + the tech according to the partition table type
- */
-BDPartDiskSpec* bd_part_get_disk_spec (const gchar *disk, GError **error) {
+BDPartDiskSpec* _part_get_disk_spec_fdisk (const gchar *disk, GError **error) {
     struct fdisk_context *cxt = NULL;
     struct fdisk_label *lb = NULL;
     BDPartDiskSpec *ret = NULL;
@@ -823,6 +923,48 @@ BDPartDiskSpec* bd_part_get_disk_spec (const gchar *disk, GError **error) {
     close_context (cxt);
 
     return ret;
+}
+
+BDPartDiskSpec* _part_get_disk_spec_fdasd (const gchar *disk G_GNUC_UNUSED, GError **error) {
+    if (!bd_part_is_tech_avail (BD_PART_TECH_DASD, 0, error))
+        return NULL;
+
+    return NULL;
+}
+
+/**
+ * bd_part_get_disk_spec:
+ * @disk: disk to get information about
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: (transfer full): information about the given @disk or %NULL (in case of error)
+ *
+ * Tech category: %BD_PART_TECH_MODE_QUERY_TABLE + the tech according to the partition table type
+ */
+BDPartDiskSpec* bd_part_get_disk_spec (const gchar *disk, GError **error) {
+    BDPartTableType pttype;
+    GError *l_error = NULL;
+
+    pttype = _get_part_table_type (disk, &l_error);
+    switch (pttype) {
+        case BD_PART_TABLE_UNDEF:
+            if (l_error == NULL) {
+                g_set_error (error, BD_PART_ERROR, BD_PART_ERROR_FAIL,
+                            "...");
+                return NULL;
+            } else {
+                g_propagate_prefixed_error (error, l_error, "Failed to get partition table type: ");
+                return NULL;
+            }
+            break;
+        case BD_PART_TABLE_MSDOS:
+        case BD_PART_TABLE_GPT:
+            return _part_get_disk_spec_fdisk (disk, error);
+        case BD_PART_TABLE_DASD:
+            return _part_get_disk_spec_fdasd (disk, error);
+    }
+
+    return NULL;
 }
 
 /**

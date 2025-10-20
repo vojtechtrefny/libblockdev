@@ -15,6 +15,7 @@ typedef enum {
 typedef enum {
     BD_PART_TABLE_MSDOS,
     BD_PART_TABLE_GPT,
+    BD_PART_TABLE_DASD,
     BD_PART_TABLE_UNDEF,
 } BDPartTableType;
 
@@ -70,6 +71,7 @@ void bd_part_disk_spec_free (BDPartDiskSpec *data);
 typedef enum {
     BD_PART_TECH_MBR = 0,
     BD_PART_TECH_GPT,
+    BD_PART_TECH_DASD,
 } BDPartTech;
 
 typedef enum {
