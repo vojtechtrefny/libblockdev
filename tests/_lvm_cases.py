@@ -2013,7 +2013,7 @@ class LvmTestCache(LvmPVVGLVcachePoolTestCase):
 
 class LvmVDOTest(LvmTestCase):
 
-    loop_size = 8 * 1024**3
+    loop_size = 9 * 1024**3
 
     @classmethod
     def setUpClass(cls):
@@ -2117,15 +2117,15 @@ class LvmVDOTest(LvmTestCase):
 
     @tag_test(TestTags.SLOW)
     def test_vdo_pool_create_options(self):
-        # set index size to 300 MiB, disable compression and write policy to sync
+        # set index size to 512 MiB, disable compression and write policy to sync
         policy = BlockDev.lvm_get_vdo_write_policy_from_str("sync")
-        succ = BlockDev.lvm_vdo_pool_create("testVDOVG", "vdoLV", "vdoPool", 7 * 1024**3, 35 * 1024**3,
-                                            300 * 1024**2, False, True, policy)
+        succ = BlockDev.lvm_vdo_pool_create("testVDOVG", "vdoLV", "vdoPool", 8 * 1024**3, 35 * 1024**3,
+                                            512 * 1024**2, False, True, policy)
         self.assertTrue(succ)
 
         vdo_info = BlockDev.lvm_vdo_info("testVDOVG", "vdoPool")
         self.assertIsNotNone(vdo_info)
-        self.assertEqual(vdo_info.index_memory_size, 300 * 1024**2)
+        self.assertEqual(vdo_info.index_memory_size, 512 * 1024**2)
         self.assertFalse(vdo_info.compression)
         self.assertTrue(vdo_info.deduplication)
         self.assertEqual(BlockDev.lvm_get_vdo_write_policy_str(vdo_info.write_policy), "sync")
@@ -2166,8 +2166,7 @@ class LvmVDOTest(LvmTestCase):
 
     @tag_test(TestTags.SLOW)
     def test_enable_disable_compression(self):
-        succ = BlockDev.lvm_vdo_pool_create("testVDOVG", "vdoLV", "vdoPool", 7 * 1024**3, 35 * 1024**3,
-                                            300 * 1024**2)
+        succ = BlockDev.lvm_vdo_pool_create("testVDOVG", "vdoLV", "vdoPool", 7 * 1024**3, 35 * 1024**3)
         self.assertTrue(succ)
 
         # enabled by default
@@ -2193,8 +2192,7 @@ class LvmVDOTest(LvmTestCase):
 
     @tag_test(TestTags.SLOW)
     def test_enable_disable_deduplication(self):
-        succ = BlockDev.lvm_vdo_pool_create("testVDOVG", "vdoLV", "vdoPool", 7 * 1024**3, 35 * 1024**3,
-                                            300 * 1024**2)
+        succ = BlockDev.lvm_vdo_pool_create("testVDOVG", "vdoLV", "vdoPool", 7 * 1024**3, 35 * 1024**3)
         self.assertTrue(succ)
 
         # enabled by default

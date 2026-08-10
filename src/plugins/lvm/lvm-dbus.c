@@ -3774,6 +3774,9 @@ gboolean bd_lvm_vdo_pool_create (const gchar *vg_name, const gchar *lv_name, con
     extra_params = g_variant_builder_end (&builder);
     g_variant_builder_clear (&builder);
 
+    if (index_memory != 0)
+        _lvm_check_vdo_index_memory (index_memory);
+
     /* index_memory and write_policy can be specified only using the config */
     g_mutex_lock (&global_config_lock);
     old_config = global_config_str;
@@ -3997,6 +4000,9 @@ gboolean bd_lvm_vdo_pool_convert (const gchar *vg_name, const gchar *pool_lv, co
     g_variant_builder_add_value (&builder, g_variant_new ("{sv}", "--deduplication", g_variant_new ("s", deduplication ? "y" : "n")));
     extra_params = g_variant_builder_end (&builder);
     g_variant_builder_clear (&builder);
+
+    if (index_memory != 0)
+        _lvm_check_vdo_index_memory (index_memory);
 
     /* index_memory and write_policy can be specified only using the config */
     g_mutex_lock (&global_config_lock);
