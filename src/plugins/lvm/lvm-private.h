@@ -14,4 +14,6 @@ extern gchar *global_config_str;
 
 extern gchar *global_devices_str;
 
+void _lvm_check_vdo_index_memory (guint64 index_memory);
+
 #endif /* BD_LVM_PRIVATE */

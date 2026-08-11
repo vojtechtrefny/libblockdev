@@ -19,6 +19,7 @@
 #include <glib.h>
 #include <math.h>
 #include <stdio.h>
+#include <blockdev/utils.h>
 #include <libdevmapper.h>
 
 #include "lvm.h"
@@ -221,6 +222,19 @@ void bd_lvm_lvdata_free (BDLVMLVdata *data) {
     g_strfreev (data->metadata_lvs);
     free_segs (data->segs);
     g_free (data);
+}
+
+/* Valid vdo_index_memory_size_mb values: 256, 512, 768, or any multiple of 1024 */
+void _lvm_check_vdo_index_memory (guint64 index_memory) {
+    guint64 index_memory_mb = index_memory / (1024 * 1024);
+
+    if (index_memory_mb != 256 && index_memory_mb != 512 && index_memory_mb != 768 &&
+        (index_memory_mb < 1024 || index_memory_mb % 1024 != 0))
+        bd_utils_log_format (BD_UTILS_LOG_WARNING,
+                             "VDO index memory size %"G_GUINT64_FORMAT" MiB is not a valid value, "
+                             "it will be rounded by LVM. "
+                             "Valid values are 256, 512, 768, or a multiple of 1024.",
+                             index_memory_mb);
 }
 
 BDLVMVDOPooldata* bd_lvm_vdopooldata_copy (BDLVMVDOPooldata *data) {
