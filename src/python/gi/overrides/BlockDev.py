@@ -1263,8 +1263,7 @@ class ErrorProxy(object):
         def wrapped(*args, **kwargs):
             try:
                 ret = orig_obj(*args, **kwargs)
-            # pylint: disable=catching-non-exception
-            except tuple(tr_t[0] for tr_t in self._tr_excs) as e:
+            except tuple(tr_t[0] for tr_t in self._tr_excs) as e:  # pylint: disable=catching-non-exception
                 if hasattr(e, "msg"):
                     msg = e.msg # pylint: disable=no-member
                 elif hasattr(e, "message"):
