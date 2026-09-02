@@ -162,6 +162,10 @@ bd_dm_name_from_node
 bd_dm_node_from_name
 bd_dm_map_exists
 bd_dm_get_subsystem_from_name
+bd_dm_get_thin_pool_stats
+BDDMThinPoolStats
+bd_dm_thin_pool_stats_copy
+bd_dm_thin_pool_stats_free
 BDDMTech
 BDDMTechMode
 bd_dm_is_tech_avail

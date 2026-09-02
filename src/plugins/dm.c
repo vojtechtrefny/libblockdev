@@ -49,6 +49,42 @@ GQuark bd_dm_error_quark (void)
     return g_quark_from_static_string ("g-bd-dm-error-quark");
 }
 
+/**
+ * bd_dm_thin_pool_stats_copy: (skip)
+ * @data: (nullable): %BDDMThinPoolStats to copy
+ *
+ * Creates a new copy of @data.
+ */
+BDDMThinPoolStats* bd_dm_thin_pool_stats_copy (BDDMThinPoolStats *data) {
+    if (data == NULL)
+        return NULL;
+
+    BDDMThinPoolStats *new = g_new0 (BDDMThinPoolStats, 1);
+
+    new->used_metadata_blocks = data->used_metadata_blocks;
+    new->total_metadata_blocks = data->total_metadata_blocks;
+    new->used_data_blocks = data->used_data_blocks;
+    new->total_data_blocks = data->total_data_blocks;
+    new->read_only = data->read_only;
+    new->fail = data->fail;
+    new->out_of_data_space = data->out_of_data_space;
+    new->needs_check = data->needs_check;
+
+    return new;
+}
+
+/**
+ * bd_dm_thin_pool_stats_free: (skip)
+ * @data: (nullable): %BDDMThinPoolStats to free
+ *
+ * Frees @data.
+ */
+void bd_dm_thin_pool_stats_free (BDDMThinPoolStats *data) {
+    if (data == NULL)
+        return;
+    g_free (data);
+}
+
 static volatile guint avail_deps = 0;
 static GMutex deps_check_lock;
 
@@ -390,6 +426,110 @@ gboolean bd_dm_map_exists (const gchar *map_name, gboolean live_only, gboolean a
     } while (next);
 
     dm_task_destroy (task_list);
+
+    return ret;
+}
+
+/**
+ * bd_dm_get_thin_pool_stats:
+ * @map_name: name of the DM map (thin pool) to get stats for
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: (transfer full): physical usage stats for the thin pool @map_name or
+ * %NULL in case of error (@error is set). This works for any device mapper thin
+ * pool, it doesn't have to be managed by LVM.
+ *
+ * Tech category: %BD_DM_TECH_MAP-%BD_DM_TECH_MODE_QUERY
+ */
+BDDMThinPoolStats* bd_dm_get_thin_pool_stats (const gchar *map_name, GError **error) {
+    struct dm_pool *pool = NULL;
+    struct dm_task *task = NULL;
+    struct dm_info info;
+    struct dm_status_thin_pool *status = NULL;
+    guint64 start = 0;
+    guint64 length = 0;
+    gchar *type = NULL;
+    gchar *params = NULL;
+    BDDMThinPoolStats *ret = NULL;
+
+    if (geteuid () != 0) {
+        g_set_error_literal (error, BD_DM_ERROR, BD_DM_ERROR_NOT_ROOT,
+                             "Not running as root, cannot query DM maps");
+        return NULL;
+    }
+
+    task = dm_task_create (DM_DEVICE_STATUS);
+    if (!task) {
+        g_set_error (error, BD_DM_ERROR, BD_DM_ERROR_TASK,
+                     "Failed to create DM task for the thin pool map '%s'", map_name);
+        return NULL;
+    }
+
+    if (dm_task_set_name (task, map_name) == 0) {
+        g_set_error (error, BD_DM_ERROR, BD_DM_ERROR_TASK,
+                     "Failed to set name for the DM task for the thin pool map '%s'", map_name);
+        dm_task_destroy (task);
+        return NULL;
+    }
+
+    if (dm_task_run (task) == 0) {
+        g_set_error (error, BD_DM_ERROR, BD_DM_ERROR_TASK,
+                     "Failed to run the DM task for the thin pool map '%s'", map_name);
+        dm_task_destroy (task);
+        return NULL;
+    }
+
+    if (dm_task_get_info (task, &info) == 0) {
+        g_set_error (error, BD_DM_ERROR, BD_DM_ERROR_TASK,
+                     "Failed to get task info for the thin pool map '%s'", map_name);
+        dm_task_destroy (task);
+        return NULL;
+    }
+
+    if (!info.exists) {
+        g_set_error (error, BD_DM_ERROR, BD_DM_ERROR_DEVICE_NOEXIST,
+                     "The thin pool map '%s' doesn't exist", map_name);
+        dm_task_destroy (task);
+        return NULL;
+    }
+
+    dm_get_next_target (task, NULL, &start, &length, &type, &params);
+
+    if (g_strcmp0 (type, "thin-pool") != 0) {
+        g_set_error (error, BD_DM_ERROR, BD_DM_ERROR_TASK,
+                     "The map '%s' is not a thin pool", map_name);
+        dm_task_destroy (task);
+        return NULL;
+    }
+
+    pool = dm_pool_create ("bd-pool", 20);
+    if (!pool) {
+        g_set_error (error, BD_DM_ERROR, BD_DM_ERROR_TASK,
+                     "Failed to create memory pool for parsing the status of '%s'", map_name);
+        dm_task_destroy (task);
+        return NULL;
+    }
+
+    if (dm_get_status_thin_pool (pool, params, &status) == 0) {
+        g_set_error (error, BD_DM_ERROR, BD_DM_ERROR_TASK,
+                     "Failed to get status of the thin pool map '%s'", map_name);
+        dm_task_destroy (task);
+        dm_pool_destroy (pool);
+        return NULL;
+    }
+
+    ret = g_new0 (BDDMThinPoolStats, 1);
+    ret->used_metadata_blocks = status->used_metadata_blocks;
+    ret->total_metadata_blocks = status->total_metadata_blocks;
+    ret->used_data_blocks = status->used_data_blocks;
+    ret->total_data_blocks = status->total_data_blocks;
+    ret->read_only = status->read_only != 0;
+    ret->fail = status->fail != 0;
+    ret->out_of_data_space = status->out_of_data_space != 0;
+    ret->needs_check = status->needs_check != 0;
+
+    dm_task_destroy (task);
+    dm_pool_destroy (pool);
 
     return ret;
 }
