@@ -26,6 +26,20 @@ typedef enum {
     BD_DM_TECH_MODE_QUERY             = 1 << 2,
 } BDDMTechMode;
 
+typedef struct BDDMThinPoolStats {
+    guint64 used_metadata_blocks;
+    guint64 total_metadata_blocks;
+    guint64 used_data_blocks;
+    guint64 total_data_blocks;
+    gboolean read_only;
+    gboolean fail;
+    gboolean out_of_data_space;
+    gboolean needs_check;
+} BDDMThinPoolStats;
+
+void bd_dm_thin_pool_stats_free (BDDMThinPoolStats *data);
+BDDMThinPoolStats* bd_dm_thin_pool_stats_copy (BDDMThinPoolStats *data);
+
 /*
  * If using the plugin as a standalone library, the following functions should
  * be called to:
@@ -45,5 +59,6 @@ gboolean bd_dm_map_exists (const gchar *map_name, gboolean live_only, gboolean a
 gchar* bd_dm_name_from_node (const gchar *dm_node, GError **error);
 gchar* bd_dm_node_from_name (const gchar *map_name, GError **error);
 gchar* bd_dm_get_subsystem_from_name (const gchar *device_name, GError **error);
+BDDMThinPoolStats* bd_dm_get_thin_pool_stats (const gchar *map_name, GError **error);
 
 #endif  /* BD_DM */

@@ -2,7 +2,7 @@ import unittest
 import os
 import overrides_hack
 
-from utils import run, create_sparse_tempfile, create_lio_device, delete_lio_device, fake_utils, fake_path, TestTags, tag_test, required_plugins
+from utils import run, run_command, create_sparse_tempfile, create_lio_device, delete_lio_device, fake_utils, fake_path, TestTags, tag_test, required_plugins
 
 import gi
 gi.require_version('GLib', '2.0')
@@ -158,6 +158,62 @@ class DevMapperNameNodeBijection(DevMapperTestCase):
 
         with self.assertRaisesRegex(GLib.GError, "No DM node specified"):
             BlockDev.dm_name_from_node("")
+
+
+class DevMapperThinPoolStats(DevMapperTestCase):
+    def _clean_up(self):
+        for map_name in ("testPool", "testData", "testMeta"):
+            run("dmsetup remove %s >/dev/null 2>&1" % map_name)
+        super()._clean_up()
+
+    def _create_thin_pool(self):
+        # loop_dev is 1 GiB = 2097152 sectors; carve out a metadata and a data
+        # device using linear maps and build a thin pool on top of them
+        ret, _out, err = run_command("dmsetup create testMeta --table '0 16384 linear %s 0'" % self.loop_dev)
+        self.assertEqual(ret, 0, msg="Failed to create metadata device: %s" % err)
+
+        ret, _out, err = run_command("dmsetup create testData --table '0 2080768 linear %s 16384'" % self.loop_dev)
+        self.assertEqual(ret, 0, msg="Failed to create data device: %s" % err)
+
+        # a fresh thin pool needs its metadata superblock zeroed
+        ret, _out, err = run_command("dd if=/dev/zero of=/dev/mapper/testMeta bs=4096 count=1")
+        self.assertEqual(ret, 0, msg="Failed to zero the metadata device: %s" % err)
+
+        # data block size 128 sectors (64 KiB), low water mark 0
+        ret, _out, err = run_command("dmsetup create testPool "
+                                     "--table '0 2080768 thin-pool /dev/mapper/testMeta /dev/mapper/testData 128 0'")
+        self.assertEqual(ret, 0, msg="Failed to create the thin pool: %s" % err)
+
+    def test_thin_pool_stats(self):
+        """Verify that it is possible to get stats for a device mapper thin pool"""
+
+        self._create_thin_pool()
+
+        stats = BlockDev.dm_get_thin_pool_stats("testPool")
+        self.assertIsNotNone(stats)
+
+        self.assertGreater(stats.total_data_blocks, 0)
+        self.assertGreater(stats.total_metadata_blocks, 0)
+        self.assertLessEqual(stats.used_data_blocks, stats.total_data_blocks)
+        self.assertLessEqual(stats.used_metadata_blocks, stats.total_metadata_blocks)
+
+        self.assertFalse(stats.fail)
+        self.assertFalse(stats.out_of_data_space)
+        self.assertFalse(stats.needs_check)
+
+    def test_thin_pool_stats_errors(self):
+        """Verify that getting stats for an invalid thin pool fails as expected"""
+
+        # non-existing map
+        with self.assertRaisesRegex(GLib.GError, "doesn't exist"):
+            BlockDev.dm_get_thin_pool_stats("testPool")
+
+        # existing map that is not a thin pool
+        succ = BlockDev.dm_create_linear("testMap", self.loop_dev, 100, None)
+        self.assertTrue(succ)
+
+        with self.assertRaisesRegex(GLib.GError, "not a thin pool"):
+            BlockDev.dm_get_thin_pool_stats("testMap")
 
 
 class DMNoStorageTest(DevMapperTest):

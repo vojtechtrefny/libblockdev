@@ -30,6 +30,83 @@ typedef enum {
     BD_DM_TECH_MODE_QUERY             = 1 << 2,
 } BDDMTechMode;
 
+#define BD_DM_TYPE_THIN_POOL_STATS (bd_dm_thin_pool_stats_get_type ())
+GType bd_dm_thin_pool_stats_get_type ();
+
+/**
+ * BDDMThinPoolStats:
+ * @used_metadata_blocks: number of used metadata blocks
+ * @total_metadata_blocks: total number of metadata blocks
+ * @used_data_blocks: number of used data blocks
+ * @total_data_blocks: total number of data blocks
+ * @read_only: whether the metadata may not be changed
+ * @fail: whether the pool fails all I/O
+ * @out_of_data_space: whether the pool ran out of data space
+ * @needs_check: whether the metadata needs a check
+ *
+ * The block sizes are not reported by the device mapper thin pool status, only
+ * the numbers of blocks. To get the space usage as a percentage divide the used
+ * blocks by the total blocks.
+ */
+typedef struct BDDMThinPoolStats {
+    guint64 used_metadata_blocks;
+    guint64 total_metadata_blocks;
+    guint64 used_data_blocks;
+    guint64 total_data_blocks;
+    gboolean read_only;
+    gboolean fail;
+    gboolean out_of_data_space;
+    gboolean needs_check;
+} BDDMThinPoolStats;
+
+/**
+ * bd_dm_thin_pool_stats_copy: (skip)
+ * @data: (nullable): %BDDMThinPoolStats to copy
+ *
+ * Creates a new copy of @data.
+ */
+BDDMThinPoolStats* bd_dm_thin_pool_stats_copy (BDDMThinPoolStats *data) {
+    if (data == NULL)
+        return NULL;
+
+    BDDMThinPoolStats *new = g_new0 (BDDMThinPoolStats, 1);
+
+    new->used_metadata_blocks = data->used_metadata_blocks;
+    new->total_metadata_blocks = data->total_metadata_blocks;
+    new->used_data_blocks = data->used_data_blocks;
+    new->total_data_blocks = data->total_data_blocks;
+    new->read_only = data->read_only;
+    new->fail = data->fail;
+    new->out_of_data_space = data->out_of_data_space;
+    new->needs_check = data->needs_check;
+
+    return new;
+}
+
+/**
+ * bd_dm_thin_pool_stats_free: (skip)
+ * @data: (nullable): %BDDMThinPoolStats to free
+ *
+ * Frees @data.
+ */
+void bd_dm_thin_pool_stats_free (BDDMThinPoolStats *data) {
+    if (data == NULL)
+        return;
+    g_free (data);
+}
+
+GType bd_dm_thin_pool_stats_get_type () {
+    static GType type = 0;
+
+    if (G_UNLIKELY(type == 0)) {
+        type = g_boxed_type_register_static("BDDMThinPoolStats",
+                                            (GBoxedCopyFunc) bd_dm_thin_pool_stats_copy,
+                                            (GBoxedFreeFunc) bd_dm_thin_pool_stats_free);
+    }
+
+    return type;
+}
+
 /**
  * bd_dm_is_tech_avail:
  * @tech: the queried tech
@@ -116,5 +193,18 @@ gchar* bd_dm_get_subsystem_from_name (const gchar *device_name, GError **error);
  * Tech category: %BD_DM_TECH_MAP-%BD_DM_TECH_MODE_QUERY
  */
 gboolean bd_dm_map_exists (const gchar *map_name, gboolean live_only, gboolean active_only, GError **error);
+
+/**
+ * bd_dm_get_thin_pool_stats:
+ * @map_name: name of the DM map (thin pool) to get stats for
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: (transfer full): physical usage stats for the thin pool @map_name or
+ * %NULL in case of error (@error is set). This works for any device mapper thin
+ * pool, it doesn't have to be managed by LVM.
+ *
+ * Tech category: %BD_DM_TECH_MAP-%BD_DM_TECH_MODE_QUERY
+ */
+BDDMThinPoolStats* bd_dm_get_thin_pool_stats (const gchar *map_name, GError **error);
 
 #endif  /* BD_DM_API */
