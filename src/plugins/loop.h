@@ -59,13 +59,17 @@ void bd_loop_close (void);
 gboolean bd_loop_is_tech_avail (BDLoopTech tech, guint64 mode, GError **error);
 
 BDLoopInfo* bd_loop_info (const gchar *loop, GError **error);
+BDLoopInfo* bd_loop_info_from_fd (gint fd, GError **error);
 
 gchar* bd_loop_get_loop_name (const gchar *file, GError **error);
 gboolean bd_loop_setup (const gchar *file, guint64 offset, guint64 size, gboolean read_only, gboolean part_scan, guint64 sector_size, const gchar **loop_name, GError **error);
 gboolean bd_loop_setup_from_fd (gint fd, guint64 offset, guint64 size, gboolean read_only, gboolean part_scan, guint64 sector_size, const gchar **loop_name, GError **error);
 gboolean bd_loop_teardown (const gchar *loop, GError **error);
+gboolean bd_loop_teardown_from_fd (gint fd, GError **error);
 
 gboolean bd_loop_set_autoclear (const gchar *loop, gboolean autoclear, GError **error);
+gboolean bd_loop_set_autoclear_from_fd (gint fd, gboolean autoclear, GError **error);
 gboolean bd_loop_set_capacity (const gchar *loop, GError **error);
+gboolean bd_loop_set_capacity_from_fd (gint fd, GError **error);
 
 #endif  /* BD_LOOP */

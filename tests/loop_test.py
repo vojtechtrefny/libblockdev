@@ -31,10 +31,11 @@ class LoopTestCase(unittest.TestCase):
         self.loop = None
 
     def _clean_up(self):
-        try:
-            BlockDev.loop_teardown(self.loop)
-        except:
-            pass
+        if self.loop:
+            try:
+                BlockDev.loop_teardown(self.loop)
+            except:
+                pass
         os.unlink(self.dev_file)
 
     def _get_loop_size(self):
@@ -76,6 +77,89 @@ class LoopTestSetupBasic(LoopTestCase):
 
         succ = BlockDev.loop_teardown(self.loop)
         self.assertTrue(succ)
+
+
+class LoopTestFromFd(LoopTestCase):
+    @tag_test(TestTags.CORE)
+    def test_loop_teardown_from_fd(self):
+        """Verify that loop_teardown_from_fd works as expected"""
+
+        succ, self.loop = BlockDev.loop_setup(self.dev_file)
+        self.assertTrue(succ)
+        self.assertTrue(self.loop)
+
+        fd = os.open("/dev/" + self.loop, os.O_RDONLY)
+        try:
+            succ = BlockDev.loop_teardown_from_fd(fd)
+            self.assertTrue(succ)
+        except:
+            raise
+        else:
+            self.loop = None
+        finally:
+            os.close(fd)
+
+    def test_loop_info_from_fd(self):
+        """Verify that loop_info_from_fd works as expected"""
+
+        succ, self.loop = BlockDev.loop_setup(self.dev_file, 10 * 1024**2)
+        self.assertTrue(succ)
+        self.assertTrue(self.loop)
+
+        fd = os.open("/dev/" + self.loop, os.O_RDONLY)
+        try:
+            info = BlockDev.loop_info_from_fd(fd)
+            self.assertIsNotNone(info)
+            self.assertEqual(info.backing_file, self.dev_file)
+            self.assertEqual(info.offset, 10 * 1024**2)
+        finally:
+            os.close(fd)
+
+    def test_loop_set_autoclear_from_fd(self):
+        """Verify that loop_set_autoclear_from_fd works as expected"""
+
+        succ, self.loop = BlockDev.loop_setup(self.dev_file)
+        self.assertTrue(succ)
+        self.assertTrue(self.loop)
+
+        # open the loop device so that it doesn't disappear once we set
+        # autoclear to True
+        fd = os.open("/dev/" + self.loop, os.O_RDWR)
+        self.addCleanup(os.close, fd)
+
+        self.assertTrue(BlockDev.loop_set_autoclear_from_fd(fd, True))
+        info = BlockDev.loop_info(self.loop)
+        self.assertIsNotNone(info)
+        self.assertTrue(info.autoclear)
+
+        self.assertTrue(BlockDev.loop_set_autoclear_from_fd(fd, False))
+        info = BlockDev.loop_info(self.loop)
+        self.assertIsNotNone(info)
+        self.assertFalse(info.autoclear)
+
+    def test_loop_set_capacity_from_fd(self):
+        """Verify that loop_set_capacity_from_fd works as expected"""
+
+        succ, self.loop = BlockDev.loop_setup(self.dev_file)
+        self.assertTrue(succ)
+        self.assertTrue(self.loop)
+        self.assertEqual(self._get_loop_size(), self._loop_size)
+
+        # enlarge the backing file
+        create_sparse_file(self.dev_file, self._loop_size * 2)
+
+        # size shouldn't change without forcing re-read
+        self.assertEqual(self._get_loop_size(), self._loop_size)
+
+        fd = os.open("/dev/" + self.loop, os.O_RDWR)
+        try:
+            succ = BlockDev.loop_set_capacity_from_fd(fd)
+            self.assertTrue(succ)
+        finally:
+            os.close(fd)
+
+        # now the size should be updated
+        self.assertEqual(self._get_loop_size(), self._loop_size * 2)
 
 
 class LoopTestSetupOffset(LoopTestCase):

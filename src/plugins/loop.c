@@ -23,6 +23,8 @@
 #include <string.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <sys/sysmacros.h>
 #include <linux/loop.h>
 #include <errno.h>
 #include <blockdev/utils.h>
@@ -114,10 +116,20 @@ BDLoopInfo* bd_loop_info_copy (BDLoopInfo *info) {
     return new_info;
 }
 
-static gchar* _loop_get_backing_file (const gchar *dev_name, GError **error) {
-    gchar *sys_path = g_strdup_printf ("/sys/class/block/%s/loop/backing_file", dev_name);
+static gchar* _loop_get_backing_file_from_fd (gint fd, GError **error) {
+    struct stat statbuf;
+    gchar *sys_path = NULL;
     gchar *ret = NULL;
     gboolean success = FALSE;
+
+    if (fstat (fd, &statbuf) != 0) {
+        g_set_error (error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
+                     "Failed to stat the loop device: %m");
+        return NULL;
+    }
+
+    sys_path = g_strdup_printf ("/sys/dev/block/%u:%u/loop/backing_file",
+                                major (statbuf.st_rdev), minor (statbuf.st_rdev));
 
     if (access (sys_path, R_OK) != 0) {
         g_free (sys_path);
@@ -145,11 +157,9 @@ static gchar* _loop_get_backing_file (const gchar *dev_name, GError **error) {
  * Tech category: %BD_LOOP_TECH_LOOP-%BD_LOOP_TECH_MODE_QUERY
  */
 BDLoopInfo* bd_loop_info (const gchar *loop, GError **error) {
-    BDLoopInfo *info = NULL;
     g_autofree gchar *dev_loop = NULL;
     gint fd = -1;
-    struct loop_info64 li64;
-    GError *l_error = NULL;
+    BDLoopInfo *info = NULL;
 
     if (!g_str_has_prefix (loop, "/dev/"))
         dev_loop = g_strdup_printf ("/dev/%s", loop);
@@ -161,16 +171,33 @@ BDLoopInfo* bd_loop_info (const gchar *loop, GError **error) {
         return NULL;
     }
 
+    info = bd_loop_info_from_fd (fd, error);
+    close (fd);
+    return info;
+}
+
+/**
+ * bd_loop_info_from_fd:
+ * @fd: file descriptor of an open loop device to get information about
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: (transfer full): information about the loop device represented by @fd
+ * or %NULL in case of error
+ *
+ * Tech category: %BD_LOOP_TECH_LOOP-%BD_LOOP_TECH_MODE_QUERY
+ */
+BDLoopInfo* bd_loop_info_from_fd (gint fd, GError **error) {
+    BDLoopInfo *info = NULL;
+    struct loop_info64 li64;
+    GError *l_error = NULL;
+
     memset (&li64, 0, sizeof (li64));
     if (ioctl (fd, LOOP_GET_STATUS64, &li64) < 0) {
         g_set_error (error, BD_LOOP_ERROR,
                      errno == ENXIO ? BD_LOOP_ERROR_DEVICE : BD_LOOP_ERROR_FAIL,
-                     "Failed to get status of the device %s: %m", loop);
-        close (fd);
+                     "Failed to get status of the device: %m");
         return NULL;
     }
-
-    close (fd);
 
     info = g_new0 (BDLoopInfo, 1);
     info->offset = li64.lo_offset;
@@ -183,11 +210,11 @@ BDLoopInfo* bd_loop_info (const gchar *loop, GError **error) {
     if ((li64.lo_flags & LO_FLAGS_READ_ONLY) != 0)
         info->read_only = TRUE;
 
-    info->backing_file = _loop_get_backing_file (loop, &l_error);
+    info->backing_file = _loop_get_backing_file_from_fd (fd, &l_error);
     if (l_error) {
         bd_loop_info_free (info);
         g_set_error (error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
-                     "Failed to get backing file of the device %s: %s", loop, l_error->message);
+                     "Failed to get backing file of the device: %s", l_error->message);
         g_clear_error (&l_error);
         return NULL;
     }
@@ -426,34 +453,48 @@ gboolean bd_loop_setup_from_fd (gint fd, guint64 offset, guint64 size, gboolean 
 gboolean bd_loop_teardown (const gchar *loop, GError **error) {
     gchar *dev_loop = NULL;
     gint loop_fd = -1;
-    guint64 progress_id = 0;
-    GError *l_error = NULL;
-
-    progress_id = bd_utils_report_started ("Started tearing down loop device");
+    gboolean ret = FALSE;
 
     if (!g_str_has_prefix (loop, "/dev/"))
         dev_loop = g_strdup_printf ("/dev/%s", loop);
 
     loop_fd = open (dev_loop ? dev_loop : loop, O_RDONLY);
-    g_free (dev_loop);
     if (loop_fd == -1) {
-        g_set_error (&l_error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
+        g_set_error (error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
                      "Failed to open the %s device: %m", loop);
-        bd_utils_report_finished (progress_id, l_error->message);
-        g_propagate_error (error, l_error);
+        g_free (dev_loop);
         return FALSE;
     }
+    g_free (dev_loop);
 
-    if (ioctl (loop_fd, LOOP_CLR_FD) < 0) {
-        g_set_error (&l_error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
-                     "Failed to detach the backing file from the %s device: %m", loop);
-        close (loop_fd);
-        bd_utils_report_finished (progress_id, l_error->message);
-        g_propagate_error (error, l_error);
-        return FALSE;
-    }
-
+    ret = bd_loop_teardown_from_fd (loop_fd, error);
     close (loop_fd);
+    return ret;
+}
+
+/**
+ * bd_loop_teardown_from_fd:
+ * @fd: file descriptor of an open loop device to tear down
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether the loop device represented by @fd was successfully torn down or not
+ *
+ * Tech category: %BD_LOOP_TECH_LOOP-%BD_LOOP_TECH_MODE_DESTROY
+ */
+gboolean bd_loop_teardown_from_fd (gint fd, GError **error) {
+    guint64 progress_id = 0;
+    GError *l_error = NULL;
+
+    progress_id = bd_utils_report_started ("Started tearing down loop device");
+
+    if (ioctl (fd, LOOP_CLR_FD) < 0) {
+        g_set_error (&l_error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
+                     "Failed to detach the backing file from the loop device: %m");
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
+        return FALSE;
+    }
+
     bd_utils_report_finished (progress_id, "Completed");
 
     return TRUE;
@@ -472,34 +513,46 @@ gboolean bd_loop_teardown (const gchar *loop, GError **error) {
 gboolean bd_loop_set_autoclear (const gchar *loop, gboolean autoclear, GError **error) {
     gchar *dev_loop = NULL;
     gint fd = -1;
-    struct loop_info64 li64;
-    guint64 progress_id = 0;
-    gchar *msg = NULL;
-    GError *l_error = NULL;
+    gboolean ret = FALSE;
 
     if (!g_str_has_prefix (loop, "/dev/"))
         dev_loop = g_strdup_printf ("/dev/%s", loop);
 
-    msg = g_strdup_printf ("Started setting up the autoclear flag on the %s device",
-                           dev_loop ? dev_loop : loop);
-    progress_id = bd_utils_report_started (msg);
-    g_free (msg);
-
     fd = open (dev_loop ? dev_loop : loop, O_RDWR);
     g_free (dev_loop);
     if (fd < 0) {
-        g_set_error (&l_error, BD_LOOP_ERROR, BD_LOOP_ERROR_DEVICE,
+        g_set_error (error, BD_LOOP_ERROR, BD_LOOP_ERROR_DEVICE,
                      "Failed to open device %s: %m", loop);
-        bd_utils_report_finished (progress_id, l_error->message);
-        g_propagate_error (error, l_error);
         return FALSE;
     }
+
+    ret = bd_loop_set_autoclear_from_fd (fd, autoclear, error);
+    close (fd);
+    return ret;
+}
+
+/**
+ * bd_loop_set_autoclear_from_fd:
+ * @fd: file descriptor of an open loop device
+ * @autoclear: whether to set or unset the autoclear flag
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether the autoclear flag was successfully set on the loop device
+ * represented by @fd or not
+ *
+ * Tech category: %BD_LOOP_TECH_LOOP-%BD_LOOP_TECH_MODE_MODIFY
+ */
+gboolean bd_loop_set_autoclear_from_fd (gint fd, gboolean autoclear, GError **error) {
+    struct loop_info64 li64;
+    guint64 progress_id = 0;
+    GError *l_error = NULL;
+
+    progress_id = bd_utils_report_started ("Started setting up the autoclear flag on a loop device");
 
     memset (&li64, 0, sizeof (li64));
     if (ioctl (fd, LOOP_GET_STATUS64, &li64) < 0) {
         g_set_error (&l_error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
-                     "Failed to get status of the device %s: %m", loop);
-        close (fd);
+                     "Failed to get status of the device: %m");
         bd_utils_report_finished (progress_id, l_error->message);
         g_propagate_error (error, l_error);
         return FALSE;
@@ -512,14 +565,12 @@ gboolean bd_loop_set_autoclear (const gchar *loop, gboolean autoclear, GError **
 
     if (ioctl (fd, LOOP_SET_STATUS64, &li64) < 0) {
         g_set_error (&l_error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
-                     "Failed to set status of the device %s: %m", loop);
-        close (fd);
+                     "Failed to set status of the device: %m");
         bd_utils_report_finished (progress_id, l_error->message);
         g_propagate_error (error, l_error);
         return FALSE;
     }
 
-    close (fd);
     bd_utils_report_finished (progress_id, "Completed");
     return TRUE;
 }
@@ -539,29 +590,43 @@ gboolean bd_loop_set_autoclear (const gchar *loop, gboolean autoclear, GError **
 gboolean bd_loop_set_capacity (const gchar *loop, GError **error) {
     gchar *dev_loop = NULL;
     gint fd = -1;
-    guint64 progress_id = 0;
-    gchar *msg = NULL;
-    guint n_try = 0;
-    gint status = 0;
-    GError *l_error = NULL;
+    gboolean ret = FALSE;
 
     if (!g_str_has_prefix (loop, "/dev/"))
         dev_loop = g_strdup_printf ("/dev/%s", loop);
 
-    msg = g_strdup_printf ("Started setting up capacity on the %s device",
-                           dev_loop ? dev_loop : loop);
-    progress_id = bd_utils_report_started (msg);
-    g_free (msg);
-
     fd = open (dev_loop ? dev_loop : loop, O_RDWR);
     g_free (dev_loop);
     if (fd < 0) {
-        g_set_error (&l_error, BD_LOOP_ERROR, BD_LOOP_ERROR_DEVICE,
+        g_set_error (error, BD_LOOP_ERROR, BD_LOOP_ERROR_DEVICE,
                      "Failed to open device %s: %m", loop);
-        bd_utils_report_finished (progress_id, l_error->message);
-        g_propagate_error (error, l_error);
         return FALSE;
     }
+
+    ret = bd_loop_set_capacity_from_fd (fd, error);
+    close (fd);
+    return ret;
+}
+
+/**
+ * bd_loop_set_capacity_from_fd:
+ * @fd: file descriptor of an open loop device
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Force the loop driver to reread the size of the file associated with the loop
+ * device represented by @fd.
+ *
+ * Returns: whether the LOOP_SET_CAPACITY ioctl was successfully issued or not.
+ *
+ * Tech category: %BD_LOOP_TECH_LOOP-%BD_LOOP_TECH_MODE_MODIFY
+ */
+gboolean bd_loop_set_capacity_from_fd (gint fd, GError **error) {
+    guint64 progress_id = 0;
+    guint n_try = 0;
+    gint status = 0;
+    GError *l_error = NULL;
+
+    progress_id = bd_utils_report_started ("Started setting up capacity on a loop device");
 
     for (n_try=10, status=-1; (status != 0) && (n_try > 0); n_try--) {
         status = ioctl (fd, LOOP_SET_CAPACITY, 0);
@@ -573,14 +638,12 @@ gboolean bd_loop_set_capacity (const gchar *loop, GError **error) {
 
     if (status != 0) {
         g_set_error (&l_error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
-                     "Failed to set capacity of the device %s: %m", loop);
-        close (fd);
+                     "Failed to set capacity of the device: %m");
         bd_utils_report_finished (progress_id, l_error->message);
         g_propagate_error (error, l_error);
         return FALSE;
     }
 
-    close (fd);
     bd_utils_report_finished (progress_id, "Completed");
     return TRUE;
 }
